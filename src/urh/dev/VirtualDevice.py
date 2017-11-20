@@ -187,6 +187,8 @@ class VirtualDevice(QObject):
     def total_samples_to_send(self, value):
         if self.backend == Backends.native:
             self.__dev.total_samples_to_send = value
+        elif self.backend == Backends.network:
+            self.__dev.samples_to_send = value
         else:
             raise ValueError(self.native_only_msg)
 
@@ -194,26 +196,28 @@ class VirtualDevice(QObject):
     def is_send_continuous(self) -> bool:
         if self.backend == Backends.native:
             return self.__dev.sending_is_continuous
+        elif self.backend == Backends.network:
+            return True
         else:
             raise ValueError(self.native_only_msg)
 
     @is_send_continuous.setter
     def is_send_continuous(self, value: bool):
-        if self.backend == Backends.native:
+        if self.backend == Backends.native or self.backend == Backends.network:
             self.__dev.sending_is_continuous = value
         else:
             raise ValueError(self.native_only_msg)
 
     @property
     def continuous_send_ring_buffer(self):
-        if self.backend == Backends.native:
+        if self.backend == Backends.native or self.backend == Backends.network:
             return self.__dev.continuous_send_ring_buffer
         else:
             raise ValueError(self.native_only_msg)
 
     @continuous_send_ring_buffer.setter
     def continuous_send_ring_buffer(self, value):
-        if self.backend == Backends.native:
+        if self.backend == Backends.native or self.backend == Backends.network:
             self.__dev.continuous_send_ring_buffer = value
         else:
             raise ValueError(self.native_only_msg)
