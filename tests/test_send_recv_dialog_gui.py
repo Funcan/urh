@@ -37,6 +37,7 @@ class TestSendRecvDialog(QtTestCase):
 
     def __get_send_dialog(self):
         send_dialog = SendDialogController(self.form.project_manager, modulated_data=self.signal.data,
+                                           modulation_msg_indices=None,
                                            testing_mode=True, parent=self.form)
         if self.SHOW:
             send_dialog.show()
@@ -256,11 +257,11 @@ class TestSendRecvDialog(QtTestCase):
         view_width = send_dialog.graphics_view.view_rect().width()
         send_dialog.graphics_view.zoom(1.1)
         QApplication.instance().processEvents()
-        QTest.qWait(10)
+        QTest.qWait(50)
         self.assertLess(send_dialog.graphics_view.view_rect().width(), view_width)
         send_dialog.graphics_view.zoom(0.8)
         QApplication.instance().processEvents()
-        QTest.qWait(10)
+        QTest.qWait(50)
         self.assertLessEqual(send_dialog.graphics_view.view_rect().width(), view_width)
 
         self.__close_dialog(send_dialog)
@@ -270,7 +271,7 @@ class TestSendRecvDialog(QtTestCase):
         send_dialog = self.__get_send_dialog()
         self.assertEqual(num_samples, send_dialog.scene_manager.signal.num_samples)
         self.assertEqual(num_samples, len(send_dialog.device.samples_to_send))
-        send_dialog.graphics_view.set_selection_area(0, 1337)
+        send_dialog.graphics_view.set_horizontal_selection(0, 1337)
         send_dialog.graphics_view.delete_action.trigger()
         self.assertEqual(send_dialog.scene_manager.signal.num_samples, num_samples - 1337)
         self.assertEqual(len(send_dialog.device.samples_to_send), num_samples - 1337)

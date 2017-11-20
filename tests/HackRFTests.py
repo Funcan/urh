@@ -1,24 +1,20 @@
-import io
 import time
 import unittest
+import os
+import tempfile
 
 import numpy as np
-import sys
 
-if sys.platform == "win32":
-    import os
-    cur_dir = os.path.dirname(__file__) if not os.path.islink(__file__) else os.path.dirname(os.readlink(__file__))
-    dll_dir = os.path.realpath(os.path.join(cur_dir, "..", "src", "urh", "dev", "native", "lib", "win"))
-    os.environ['PATH'] = dll_dir + ';' + os.environ['PATH']
+from urh.util import util
 
+util.set_windows_lib_path()
 
-from urh.dev.native.HackRF import HackRF
 from urh.dev.native.lib import hackrf
+from urh.dev.native.HackRF import HackRF
 
 
 class TestHackRF(unittest.TestCase):
     def callback_fun(self, buffer):
-        out = []
         print(buffer)
         for i in range(0, len(buffer), 4):
             try:
@@ -76,13 +72,14 @@ class TestHackRF(unittest.TestCase):
             time.sleep(1)
             i+=1
         print("{0:,}".format(hfc.current_recv_index))
-        hfc.received_data.tofile("/tmp/hackrf.complex")
+        hfc.received_data.tofile(os.path.join(tempfile.gettempdir(), "hackrf.complex"))
         print("Wrote Data")
         hfc.stop_rx_mode("Finished test")
 
     def test_hackrf_class_send(self):
         hfc = HackRF(433.92e6, 1e6, 1e6, 20)
-        hfc.start_tx_mode(np.fromfile("/tmp/hackrf.complex", dtype=np.complex64), repeats=1)
+        hfc.start_tx_mode(np.fromfile(os.path.join(tempfile.gettempdir(), "hackrf.complex"),
+                                      dtype=np.complex64), repeats=1)
         while not hfc.sending_finished:
             print("Repeat: {0} Current Sample: {1}/{2}".format(hfc.current_sending_repeat+1,
                                                                hfc.current_sent_sample,
@@ -108,6 +105,22 @@ class TestHackRF(unittest.TestCase):
 
         packed = HackRF.pack_complex(unpacked)
         self.assertEqual(received, packed)
+
+    def test_c_api(self):
+        def callback(n):
+            print("called")
+            return np.array([1], dtype=np.complex64)
+
+        print("init", hackrf.init())
+        print("open", hackrf.open())
+
+        print("start_tx", hackrf.start_tx_mode(callback))
+        time.sleep(1)
+
+        print("stop_tx", hackrf.stop_tx_mode())
+
+        print("close", hackrf.close())
+        print("exit", hackrf.exit())
 
 
 if __name__ == "__main__":

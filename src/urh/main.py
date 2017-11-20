@@ -23,15 +23,6 @@ def main():
         print("You need at least Python 3.4 for this application!")
         sys.exit(1)
 
-    if sys.platform == "win32":
-        urh_dir = os.path.dirname(os.path.realpath(__file__)) if not os.path.islink(__file__) \
-            else os.path.dirname(os.path.realpath(os.readlink(__file__)))
-        assert os.path.isdir(urh_dir)
-
-        dll_dir = os.path.realpath(os.path.join(urh_dir, "dev", "native", "lib", "win"))
-        print("Using DLLs from:", dll_dir)
-        os.environ['PATH'] = dll_dir + ';' + os.environ['PATH']
-
     t = time.time()
     if GENERATE_UI and not hasattr(sys, 'frozen'):
         try:
@@ -59,11 +50,17 @@ def main():
         print("Adding {0} to pythonpath. This is only important when running URH from source.".format(src_dir))
         sys.path.insert(0, src_dir)
 
+    from urh.util import util
+    util.set_windows_lib_path()
+
     try:
         import urh.cythonext.signalFunctions
         import urh.cythonext.path_creator
         import urh.cythonext.util
     except ImportError:
+        if hasattr(sys, "frozen"):
+            print("C++ Extensions not found. Exiting...")
+            sys.exit(1)
         print("Could not find C++ extensions, trying to build them.")
         old_dir = os.curdir
         os.chdir(os.path.join(src_dir, "urh", "cythonext"))
@@ -79,13 +76,10 @@ def main():
     if constants.SETTINGS.value("theme_index", 0, int) > 0:
         os.environ['QT_QPA_PLATFORMTHEME'] = 'fusion'
 
-    app = QApplication(sys.argv)
+    app = QApplication(["URH"] + sys.argv[1:])
     app.setWindowIcon(QIcon(":/icons/data/icons/appicon.png"))
 
-    if sys.platform != "linux":
-        # noinspection PyUnresolvedReferences
-        import urh.ui.xtra_icons_rc
-        QIcon.setThemeName("oxy")
+    util.set_icon_theme()
 
     constants.SETTINGS.setValue("default_theme", app.style().objectName())
 
@@ -122,6 +116,12 @@ def main():
         menu_bar.setNativeMenuBar(False)
         import multiprocessing as mp
         mp.set_start_method("spawn")  # prevent errors with forking in native RTL-SDR backend
+    elif sys.platform == "win32":
+        # Ensure we get the app icon in windows taskbar
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("jopohl.urh")
+        import multiprocessing as mp
+        mp.freeze_support()
 
     main_window.showMaximized()
     # main_window.setFixedSize(1920, 1080 - 30)  # Youtube

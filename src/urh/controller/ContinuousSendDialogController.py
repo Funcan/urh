@@ -1,24 +1,26 @@
 from PyQt5.QtCore import pyqtSlot
 from PyQt5.QtGui import QCloseEvent
 
-from urh.ContinuousSceneManager import ContinuousSceneManager
 from urh.controller.SendDialogController import SendDialogController
 from urh.controller.SendRecvDialogController import SendRecvDialogController
 from urh.dev.VirtualDevice import VirtualDevice, Mode
 from urh.signalprocessing.ContinuousModulator import ContinuousModulator
+from urh.ui.painting.ContinuousSceneManager import ContinuousSceneManager
 
 
 class ContinuousSendDialogController(SendDialogController):
-    def __init__(self, project_manager, messages, modulators, total_samples:int, parent, testing_mode=False):
-        super().__init__(project_manager, modulated_data=None, parent=parent, testing_mode=testing_mode)
+    def __init__(self, project_manager, messages, modulators, total_samples: int, parent, testing_mode=False):
+        super().__init__(project_manager, modulated_data=None, modulation_msg_indices=None, parent=parent, testing_mode=testing_mode)
         self.messages = messages
         self.modulators = modulators
 
         self.graphics_view = self.ui.graphicsViewContinuousSend
         self.ui.stackedWidget.setCurrentWidget(self.ui.page_continuous_send)
+        self.ui.progressBarSample.hide()
+        self.ui.lSamplesSentText.hide()
 
         self.total_samples = total_samples
-        self.ui.progressBar.setMaximum(len(messages))
+        self.ui.progressBarMessage.setMaximum(len(messages))
 
         self.continuous_modulator = ContinuousModulator(messages, modulators)
         self.scene_manager = ContinuousSceneManager(ring_buffer=self.continuous_modulator.ring_buffer, parent=self)
@@ -26,7 +28,7 @@ class ContinuousSendDialogController(SendDialogController):
         self.graphics_view.setScene(self.scene_manager.scene)
         self.graphics_view.scene_manager = self.scene_manager
 
-        self.setWindowTitle("Send data (continuous mode)")
+        self.setWindowTitle("Send Signal (continuous mode)")
         self.ui.lSamplesSentText.setText("Progress:")
 
         self.init_device()
@@ -41,7 +43,7 @@ class ContinuousSendDialogController(SendDialogController):
 
     def update_view(self):
         super().update_view()
-        self.ui.progressBar.setValue(self.continuous_modulator.current_message_index.value+1)
+        self.ui.progressBarMessage.setValue(self.continuous_modulator.current_message_index.value + 1)
         self.scene_manager.init_scene()
         self.scene_manager.show_full_scene()
         self.graphics_view.update()

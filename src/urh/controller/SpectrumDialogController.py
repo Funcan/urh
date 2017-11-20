@@ -1,11 +1,9 @@
-from PyQt5.QtCore import QTimer
-from PyQt5.QtCore import pyqtSlot
-from PyQt5.QtGui import QWheelEvent
+from PyQt5.QtCore import QTimer, pyqtSlot
+from PyQt5.QtGui import QWheelEvent, QIcon
 
-from urh.FFTSceneManager import FFTSceneManager
 from urh.controller.SendRecvDialogController import SendRecvDialogController
 from urh.dev.VirtualDevice import VirtualDevice, Mode
-from urh.plugins.NetworkSDRInterface.NetworkSDRInterfacePlugin import NetworkSDRInterfacePlugin
+from urh.ui.painting.FFTSceneManager import FFTSceneManager
 
 
 class SpectrumDialogController(SendRecvDialogController):
@@ -18,7 +16,8 @@ class SpectrumDialogController(SendRecvDialogController):
         self.hide_receive_ui_items()
         self.hide_send_ui_items()
 
-        self.setWindowTitle("Spectrum analyzer")
+        self.setWindowTitle("Spectrum Analyzer")
+        self.setWindowIcon(QIcon(":/icons/data/icons/spectrum.svg"))
         self.ui.btnStart.setToolTip(self.tr("Start"))
         self.ui.btnStop.setToolTip(self.tr("Stop"))
 

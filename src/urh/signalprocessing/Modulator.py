@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import QGraphicsScene
 
 from urh import constants
 from urh.cythonext import path_creator
-from urh.ui.ZoomableScene import ZoomableScene
+from urh.ui.painting.ZoomableScene import ZoomableScene
 from urh.util.Formatter import Formatter
 
 
@@ -220,6 +220,18 @@ class Modulator(object):
         root.set("index", str(index))
 
         return root
+
+    def estimate_carrier_frequency(self, signal, protocol) -> int or None:
+        if len(protocol.messages) == 0:
+            return None
+
+        # Take the first message for detection
+        start, num_samples = protocol.get_samplepos_of_bitseq(0, 0, 0, 999999, False)
+        # Avoid too large arrays
+        if num_samples > 1e6:
+            num_samples = int(1e6)
+
+        return signal.estimate_frequency(start, start + num_samples, self.sample_rate)
 
     @staticmethod
     def from_xml(tag: ET.Element):

@@ -1,17 +1,24 @@
 from PyQt5.QtCore import QTimer, pyqtSlot, Qt, pyqtSignal
-from PyQt5.QtGui import QIcon, QKeySequence, QWheelEvent, QCursor
-from PyQt5.QtWidgets import QAction, QGraphicsScene
+from PyQt5.QtGui import QIcon, QKeySequence, QWheelEvent, QCursor, QContextMenuEvent
+from PyQt5.QtWidgets import QAction, QMenu
 
-from urh.SceneManager import SceneManager
+from urh.ui.painting.SceneManager import SceneManager
 from urh.ui.views.SelectableGraphicView import SelectableGraphicView
 from urh.util.Logger import logger
 
 
 class ZoomableGraphicView(SelectableGraphicView):
+    MINIMUM_VIEW_WIDTH = 300
+
+    # argument is x zoom factor
+    # if argument is -1, then show_full_scene was triggered during zoom
     zoomed = pyqtSignal(float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
+
+        self.context_menu_position = None  # type: QPoint
+        self.scene_type = 0
 
         self.zoom_in_action = QAction(self.tr("Zoom in"), self)
         self.zoom_in_action.setShortcut(QKeySequence.ZoomIn)
@@ -27,9 +34,12 @@ class ZoomableGraphicView(SelectableGraphicView):
         self.zoom_out_action.setIcon(QIcon.fromTheme("zoom-out"))
         self.addAction(self.zoom_out_action)
 
-        self.margin = 0.25
-        self.min_width = 100
-        self.max_width = "auto"
+        self.zoom_original_action = QAction(self.tr("Zoom original"), self)
+        self.zoom_original_action.setShortcut(QKeySequence(Qt.CTRL + Qt.Key_0))
+        self.zoom_original_action.triggered.connect(self.on_zoom_original_action_triggered)
+        self.zoom_original_action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        self.zoom_original_action.setIcon(QIcon.fromTheme("zoom-original"))
+        self.addAction(self.zoom_original_action)
 
         self.redraw_timer = QTimer()
         self.redraw_timer.setSingleShot(True)
@@ -37,17 +47,44 @@ class ZoomableGraphicView(SelectableGraphicView):
 
         self.zoomed.connect(self.on_signal_zoomed)
 
-    @property
-    def y_center(self):
-        if not hasattr(self, "scene_type") or self.scene_type == 0:
-            # Normal scene
-            return 0
-        else:
-            return -self.signal.qad_center
+        self.scene_y_min = float("nan")  # NaN = AutoDetect
+        self.scene_y_max = float("nan")  # NaN = AutoDetect
+
+        self.scene_x_zoom_stretch = 1
 
     @property
-    def scene_type(self):
-        return 0  # gets overwritten in Epic Graphic View
+    def y_center(self):
+        try:
+            if self.scene_type == 0:
+                # Normal scene
+                return 0
+            else:
+                return -self.signal.qad_center
+        except Exception as e:
+            logger.error("Could not access y_center property: {0}. Falling back to 0".format(e))
+            return 0
+
+    def create_context_menu(self):
+        menu = QMenu()
+        self._add_zoom_actions_to_menu(menu)
+        return menu
+
+    def contextMenuEvent(self, event: QContextMenuEvent):
+        self.context_menu_position = event.pos()
+        menu = self.create_context_menu()
+        menu.exec_(self.mapToGlobal(event.pos()))
+        self.context_menu_position = None
+
+    def _add_zoom_actions_to_menu(self, menu: QMenu):
+        menu.addAction(self.zoom_in_action)
+        menu.addAction(self.zoom_out_action)
+
+        if self.something_is_selected:
+            zoom_action = menu.addAction(self.tr("Zoom selection"))
+            zoom_action.setIcon(QIcon.fromTheme("zoom-fit-best"))
+            zoom_action.triggered.connect(self.on_zoom_action_triggered)
+
+        menu.addSeparator()
 
     def scrollContentsBy(self, dx: int, dy: int):
         try:
@@ -57,8 +94,8 @@ class ZoomableGraphicView(SelectableGraphicView):
             logger.warning("Graphic View already closed: " + str(e))
 
     def zoom(self, factor, zoom_to_mouse_cursor=True, cursor_pos=None):
-        if factor > 1 and self.view_rect().width() / factor < 300:
-            factor = self.view_rect().width() / 300
+        if factor > 1 and self.view_rect().width() / factor < self.MINIMUM_VIEW_WIDTH:
+            factor = self.view_rect().width() / self.MINIMUM_VIEW_WIDTH
 
         if zoom_to_mouse_cursor:
             pos = self.mapFromGlobal(QCursor.pos()) if cursor_pos is None else cursor_pos
@@ -66,12 +103,17 @@ class ZoomableGraphicView(SelectableGraphicView):
             pos = None
         old_pos = self.mapToScene(pos) if pos is not None else None
 
+        show_full = False
         if self.view_rect().width() / factor > self.sceneRect().width():
             self.show_full_scene()
             factor = 1
+            show_full = True
 
         self.scale(factor, 1)
-        self.zoomed.emit(factor)
+        if show_full:
+            self.zoomed.emit(-1)
+        else:
+            self.zoomed.emit(factor)
 
         if pos is not None:
             move = self.mapToScene(pos) - old_pos
@@ -84,10 +126,6 @@ class ZoomableGraphicView(SelectableGraphicView):
     def resizeEvent(self, event):
         if self.sceneRect().width() == 0:
             return
-
-        if self.view_rect().width() > self.sceneRect().width():
-            x_factor = self.width() / self.sceneRect().width()
-            self.scale(x_factor / self.transform().m11(), 1)
 
         self.auto_fit_view()
 
@@ -102,7 +140,9 @@ class ZoomableGraphicView(SelectableGraphicView):
     def show_full_scene(self, reinitialize=False):
         y_factor = self.transform().m22()
         self.resetTransform()
-        x_factor = self.width() / self.sceneRect().width() if self.sceneRect().width() else 1
+        # Use full self.width() here to enable show_full_scene when view_rect not yet set e.g. in Record Signal Dialog
+        x_factor = self.width() / (
+        self.sceneRect().width() * self.scene_x_zoom_stretch) if self.sceneRect().width() else 1
         self.scale(x_factor, y_factor)
         self.centerOn(0, self.y_center)
 
@@ -116,14 +156,11 @@ class ZoomableGraphicView(SelectableGraphicView):
         self.zoom(x_factor, zoom_to_mouse_cursor=False)
         self.centerOn(start + (end - start) / 2, self.y_center)
 
-    def setScene(self, scene: QGraphicsScene):
-        super().setScene(scene)
-        if self.scene() is not None:
-            self.margin = 0.25 * self.scene().height()
-
     def plot_data(self, data):
         if self.scene_manager is None:
             self.scene_manager = SceneManager(self)
+            self.scene_manager.minimum = self.scene_y_min
+            self.scene_manager.maximum = self.scene_y_max
 
         self.scene_manager.plot_data = data
         self.scene_manager.init_scene()
@@ -159,3 +196,12 @@ class ZoomableGraphicView(SelectableGraphicView):
     @pyqtSlot()
     def on_zoom_out_action_triggered(self):
         self.zoom(0.9)
+
+    @pyqtSlot()
+    def on_zoom_original_action_triggered(self):
+        self.show_full_scene(reinitialize=False)
+        self.zoomed.emit(-1)
+
+    @pyqtSlot()
+    def on_zoom_action_triggered(self):
+        self.zoom_to_selection(self.selection_area.start, self.selection_area.end)

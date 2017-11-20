@@ -1,12 +1,10 @@
+import array
 import copy
 import itertools
 from enum import Enum
 
-import array
 import numpy
-import time
 
-from urh import constants
 from urh.models.ProtocolTreeItem import ProtocolTreeItem
 from urh.signalprocessing.Message import Message
 from urh.signalprocessing.Modulator import Modulator
@@ -55,7 +53,7 @@ class ProtocolAnalyzerContainer(ProtocolAnalyzer):
         for msg in reversed(proto_analyzer.messages):
             self.messages.insert(index, Message(plain_bits=msg.decoded_bits, pause=msg.pause,
                                                 message_type=copy.copy(msg.message_type),
-                                                rssi=msg.rssi, modulator_indx=0, decoder=msg.decoder,
+                                                rssi=msg.rssi, modulator_index=0, decoder=msg.decoder,
                                                 bit_len=msg.bit_len, participant=msg.participant))
         if len(self.pauses) > 0:
             self.fuzz_pause = self.pauses[0]
@@ -86,7 +84,7 @@ class ProtocolAnalyzerContainer(ProtocolAnalyzer):
                                 range(1, num_values)]
             elif mode == FuzzMode.exhaustive:
                 pool = [[(l.start, l.end, fv) for fv in l.fuzz_values[1:]] for l in labels]
-                combinations = itertools.product(*pool) if labels else []
+                combinations = list(itertools.product(*pool)) if labels else []
             else:
                 raise ValueError("Unknown fuzz mode")
 
@@ -107,9 +105,9 @@ class ProtocolAnalyzerContainer(ProtocolAnalyzer):
                 pause = default_pause if default_pause is not None else msg.pause
                 fuz_msg = Message(plain_bits=cpy_bits, pause=pause,
                                   rssi=msg.rssi, message_type=message_type,
-                                  modulator_indx=msg.modulator_indx,
-                                  decoder=msg.decoder, fuzz_created=True)
-                added_message_indices.append(i+j+1)
+                                  modulator_index=msg.modulator_index,
+                                  decoder=msg.decoder, fuzz_created=True, participant=msg.participant)
+                added_message_indices.append(i + j + 1)
                 appd_result(fuz_msg)
                 if j % 10000 == 0:
                     self.qt_signals.current_fuzzing_message_changed.emit(j)

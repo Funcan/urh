@@ -1,16 +1,15 @@
 import os
 import xml.etree.ElementTree as ET
+from xml.dom import minidom
 
 from PyQt5.QtCore import QDir, Qt, QObject, pyqtSignal
-from PyQt5.QtWidgets import QMessageBox
+from PyQt5.QtWidgets import QMessageBox, QApplication
 
 from urh import constants
 from urh.dev import config
+from urh.models.ProtocolTreeItem import ProtocolTreeItem
 from urh.signalprocessing.MessageType import MessageType
 from urh.signalprocessing.Modulator import Modulator
-from urh.signalprocessing.Participant import Participant
-from urh.signalprocessing.ProtocoLabel import ProtocolLabel
-from xml.dom import minidom
 from urh.signalprocessing.Signal import Signal
 from urh.util import FileOperator
 
@@ -30,6 +29,7 @@ class ProjectManager(QObject):
                                 bandwidth=config.DEFAULT_BANDWIDTH,
                                 gain=config.DEFAULT_GAIN)
 
+        self.modulation_was_edited = False
         self.device = "USRP"
         self.description = ""
         self.project_path = ""
@@ -70,15 +70,17 @@ class ProjectManager(QObject):
 
         tree = ET.parse(self.project_file)
         root = tree.getroot()
-        try:
-            return [MessageType.from_xml(msg_type_tag) for msg_type_tag in
-                    root.find("protocol").find("message_types").findall("message_type")]
-        except AttributeError:
-            return []
+        result = []
+        for msg_type_tag in root.find("protocol").find("message_types").findall("message_type"):
+            result.append(MessageType.from_xml(msg_type_tag))
+
+        return result
+
 
     def set_project_folder(self, path, ask_for_new_project=True):
         if path != self.project_path:
             self.main_controller.close_all()
+        FileOperator.RECENT_PATH = path
         self.project_path = path
         self.project_file = os.path.join(self.project_path, constants.PROJECT_FILE)
         collapse_project_tabs = False
@@ -98,11 +100,13 @@ class ProjectManager(QObject):
                 root = ET.Element("UniversalRadioHackerProject")
                 tree = ET.ElementTree(root)
                 tree.write(self.project_file)
+                self.modulation_was_edited = False
         else:
             tree = ET.parse(self.project_file)
             root = tree.getroot()
 
             collapse_project_tabs = bool(int(root.get("collapse_project_tabs", 0)))
+            self.modulation_was_edited = bool(int(root.get("modulation_was_edited", 0)))
             cfc = self.main_controller.compare_frame_controller
             self.read_parameters(root)
             self.participants = cfc.proto_analyzer.read_participants_from_xml_tag(root=root.find("protocol"))
@@ -110,7 +114,8 @@ class ProjectManager(QObject):
             self.read_compare_frame_groups(root)
             decodings = cfc.proto_analyzer.read_decoders_from_xml_tag(root.find("protocol"))
             if decodings:
-                cfc.decodings = decodings
+                # Set values of decodings only so decodings are updated in generator when loading a project
+                cfc.decodings[:] = decodings
             cfc.fill_decoding_combobox()
 
             cfc.proto_analyzer.message_types = self.read_message_types()
@@ -166,7 +171,7 @@ class ProjectManager(QObject):
         if os.path.relpath(signal.filename, self.project_path) in existing_filenames.keys():
             signal_tag = existing_filenames[os.path.relpath(signal.filename, self.project_path)]
         else:
-            # Neuen Tag anlegen
+            # Create new tag
             signal_tag = ET.SubElement(root, "signal")
 
         signal_tag.set("name", signal.name)
@@ -180,6 +185,8 @@ class ProjectManager(QObject):
         signal_tag.set("auto_detect_on_modulation_changed", str(signal.auto_detect_on_modulation_changed))
         signal_tag.set("modulation_type", str(signal.modulation_type))
         signal_tag.set("sample_rate", str(signal.sample_rate))
+        signal_tag.set("pause_threshold", str(signal.pause_threshold))
+        signal_tag.set("message_length_divisor", str(signal.message_length_divisor))
 
         messages = ET.SubElement(signal_tag, "messages")
         for message in messages:
@@ -224,7 +231,7 @@ class ProjectManager(QObject):
 
         return result
 
-    def saveProject(self):
+    def save_project(self):
         if self.project_file is None or not os.path.isfile(self.project_file):
             return
 
@@ -245,6 +252,7 @@ class ProjectManager(QObject):
             device_val_tag.text = str(self.device_conf[key])
         root.set("description", str(self.description).replace("\n", self.NEWLINE_CODE))
         root.set("collapse_project_tabs", str(int(not self.main_controller.ui.tabParticipants.isVisible())))
+        root.set("modulation_was_edited", str(int(self.modulation_was_edited)))
         root.set("broadcast_address_hex", str(self.broadcast_address_hex))
 
         open_files = []
@@ -283,10 +291,10 @@ class ProjectManager(QObject):
                 if proto_frame.filename:
                     proto_tag = ET.SubElement(group_tag, "cf_protocol")
                     proto_tag.set("filename", os.path.relpath(proto_frame.filename, self.project_path))
-                    show = "1" if proto_frame.show else "0"
-                    proto_tag.set("show", show)
 
-        root.append(cfc.proto_analyzer.to_xml_tag(decodings=cfc.decodings, participants=self.participants))
+        root.append(cfc.proto_analyzer.to_xml_tag(decodings=cfc.decodings, participants=self.participants,
+                                                  messages=[msg for proto in cfc.full_protocol_list for msg in
+                                                            proto.messages]))
 
         xmlstr = minidom.parseString(ET.tostring(root)).toprettyxml(indent="  ")
         with open(self.project_file, "w") as f:
@@ -336,6 +344,8 @@ class ProjectManager(QObject):
                 signal.sample_rate = float(sig_tag.get("sample_rate", 1e6))
                 signal.bit_len = int(sig_tag.get("bit_length", 100))
                 signal.modulation_type = int(sig_tag.get("modulation_type", 0))
+                signal.pause_threshold = int(sig_tag.get("pause_threshold", 8))
+                signal.message_length_divisor = int(sig_tag.get("message_length_divisor", 1))
                 break
 
         return True
@@ -344,23 +354,24 @@ class ProjectManager(QObject):
         if self.project_file is not None:
             tree = ET.parse(self.project_file)
             root = tree.getroot()
-            fileNames = []
+            file_names = []
 
-            for ftag in root.findall("open_file"):
-                pos = int(ftag.attrib["position"])
-                filename = os.path.join(self.project_path, ftag.attrib["name"])
-                fileNames.insert(pos, filename)
+            for file_tag in root.findall("open_file"):
+                pos = int(file_tag.attrib["position"])
+                filename = os.path.normpath(os.path.join(self.project_path, file_tag.attrib["name"]))
+                file_names.insert(pos, filename)
 
-            fileNames = FileOperator.uncompress_archives(fileNames, QDir.tempPath())
-            return fileNames
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            file_names = FileOperator.uncompress_archives(file_names, QDir.tempPath())
+            QApplication.restoreOverrideCursor()
+            return file_names
         return []
 
     def read_compare_frame_groups(self, root):
         proto_tree_model = self.main_controller.compare_frame_controller.proto_tree_model
         tree_root = proto_tree_model.rootItem
         pfi = proto_tree_model.protocol_tree_items
-        proto_frame_items = [item for item in pfi[0]]
-        """:type: list of ProtocolTreeItem """
+        proto_frame_items = [item for item in pfi[0]]  # type:  list[ProtocolTreeItem]
 
         for group_tag in root.iter("group"):
             name = group_tag.attrib["name"]
@@ -374,8 +385,7 @@ class ProjectManager(QObject):
             group = tree_root.child(int(id))
 
             for proto_tag in group_tag.iter("cf_protocol"):
-                filename = os.path.join(self.project_path, proto_tag.attrib["filename"])
-                show = proto_tag.attrib["show"]
+                filename = os.path.normpath(os.path.join(self.project_path, proto_tag.attrib["filename"]))
                 try:
                     proto_frame_item = next((p for p in proto_frame_items if p.protocol.filename == filename))
                 except StopIteration:
@@ -383,7 +393,6 @@ class ProjectManager(QObject):
 
                 if proto_frame_item is not None:
                     group.appendChild(proto_frame_item)
-                    proto_frame_item.show_in_compare_frame = Qt.Checked if show == "1" else Qt.Unchecked
 
             self.main_controller.compare_frame_controller.expand_group_node(int(id))
 

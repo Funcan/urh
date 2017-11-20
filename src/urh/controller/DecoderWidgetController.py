@@ -2,15 +2,15 @@ import copy
 import os
 
 from PyQt5.QtCore import QDir, Qt, pyqtSlot
-from PyQt5.QtGui import QCloseEvent, QDropEvent, QDragEnterEvent
-from PyQt5.QtWidgets import QDialog, QTableWidgetItem, QGraphicsScene, QApplication, QFileDialog, QInputDialog, \
+from PyQt5.QtGui import QCloseEvent, QDropEvent, QDragEnterEvent, QIcon
+from PyQt5.QtWidgets import QDialog, QTableWidgetItem, QFileDialog, QInputDialog, \
     QLineEdit, QMessageBox
 
 from urh import constants
-from urh.SignalSceneManager import SignalSceneManager
+from urh.signalprocessing.Encoding import Encoding
 from urh.signalprocessing.ProtocolAnalyzer import ProtocolAnalyzer
 from urh.signalprocessing.Signal import Signal
-from urh.signalprocessing.encoder import Encoder
+from urh.ui.painting.SignalSceneManager import SignalSceneManager
 from urh.ui.ui_decoding import Ui_Decoder
 from urh.util.ProjectManager import ProjectManager
 
@@ -19,7 +19,7 @@ class DecoderWidgetController(QDialog):
     def __init__(self, decodings, signals, project_manager: ProjectManager,
                  parent=None):
         """
-        :type decodings: list of Encoder
+        :type decodings: list of Encoding
         :type signals: list of Signal
         """
         # Init
@@ -69,6 +69,7 @@ class DecoderWidgetController(QDialog):
 
         # Presets
         self.setWindowTitle("Decoding")
+        self.setWindowIcon(QIcon(":/icons/data/icons/decoding.svg"))
         self.setAcceptDrops(True)
         self.inpt_text = "10010110"
         self.ui.inpt.setText(self.inpt_text)
@@ -105,10 +106,7 @@ class DecoderWidgetController(QDialog):
         self.ui.external_encoder.textEdited.connect(self.handle_external)
         self.ui.datawhitening_sync.textEdited.connect(self.handle_datawhitening)
         self.ui.datawhitening_polynomial.textEdited.connect(self.handle_datawhitening)
-        self.ui.datawhitening_applycrc.clicked.connect(self.handle_datawhitening)
-        self.ui.datawhitening_preamble_rm.clicked.connect(self.handle_datawhitening)
-        self.ui.datawhitening_sync_rm.clicked.connect(self.handle_datawhitening)
-        self.ui.datawhitening_crc_rm.clicked.connect(self.handle_datawhitening)
+        self.ui.datawhitening_overwrite_crc.clicked.connect(self.handle_datawhitening)
 
         self.ui.decoderchain.itemChanged.connect(self.decoderchainUpdate)
         self.ui.decoderchain.internalMove.connect(self.decoderchainUpdate)
@@ -172,7 +170,7 @@ class DecoderWidgetController(QDialog):
     def saveas(self):
         # Ask for a name
         name, ok = QInputDialog.getText(self, self.tr("Save decoding"),
-                                          self.tr("Please enter a name:"), QLineEdit.Normal, self.e.chain[0])
+                                        self.tr("Please enter a name:"), QLineEdit.Normal, self.e.chain[0])
 
         if ok and name != "":
             self.e.chain[0] = name
@@ -182,13 +180,13 @@ class DecoderWidgetController(QDialog):
             for i in range(0, len(self.decodings)):
                 if name == self.decodings[i].name:
                     self.ui.combobox_decodings.setCurrentIndex(i)
-                    self.decodings[i] = Encoder(self.chainstr)
+                    self.decodings[i] = Encoding(self.chainstr)
                     self.set_e()
                     self.ui.saveas.setVisible(False)
                     self.save_to_file()
                     return
 
-            self.decodings.append(Encoder(self.chainstr))
+            self.decodings.append(Encoding(self.chainstr))
             self.ui.combobox_decodings.addItem(self.chainstr[0])
             self.ui.combobox_decodings.setCurrentIndex(self.ui.combobox_decodings.count() - 1)
             self.set_e()
@@ -198,7 +196,8 @@ class DecoderWidgetController(QDialog):
         num = self.ui.combobox_decodings.currentIndex()
         if num >= 0:
             reply = QMessageBox.question(self, self.tr("Delete Decoding?"),
-                                         self.tr("Do you really want to delete " + "'{}'?".format(self.decodings[num].name)),
+                                         self.tr("Do you really want to delete " + "'{}'?".format(
+                                             self.decodings[num].name)),
                                          QMessageBox.Yes | QMessageBox.No)
 
             if reply == QMessageBox.Yes:
@@ -287,7 +286,7 @@ class DecoderWidgetController(QDialog):
                     self.chainstr.append(self.chainoptions[op])
                 else:
                     self.chainoptions[op] = ""
-                    self.chainstr.append("0xe9cae9ca;0x21;0x8")  # Default
+                    self.chainstr.append("0xe9cae9ca;0x21;0")  # Default
             elif constants.DECODING_CUT in op:
                 # Add cut parameters
                 if op in self.chainoptions:
@@ -392,6 +391,7 @@ class DecoderWidgetController(QDialog):
         errors = "[Decoding Errors = " + str(self.e.analyze(bit)[0]) + "]"
         self.ui.decoding_errors_label.setText(errors)
         self.ui.output.setText(decoded)
+        self.ui.output.setCursorPosition(0)
 
         if len(decoded) > 0:
             if signaltype == 0:
@@ -605,52 +605,36 @@ class DecoderWidgetController(QDialog):
             txt += "Texas Instruments CC110x chips allow a data whitening that is applied before sending the signals to HF. " \
                    "After a preamble (1010...) there is a fixed 16/32 bit sync word. The following data (incl. 16 bit CRC) " \
                    "is masked (XOR) with the output of a LFSR.\n" \
-                   "This function removes the sync word, zeroes the crc (if valid) and unmasks the data."
+                   "This unmasks the data."
             self.ui.optionWidget.setCurrentIndex(5)
             # Values can only be changed when editing decoder, otherwise default value
             if not decoderEdit:
                 self.ui.datawhitening_sync.setText("0xe9cae9ca")
                 self.ui.datawhitening_polynomial.setText("0x21")
-                self.ui.datawhitening_applycrc.setChecked(True)
-                self.ui.datawhitening_preamble_rm.setChecked(False)
-                self.ui.datawhitening_sync_rm.setChecked(False)
-                self.ui.datawhitening_crc_rm.setChecked(False)
+                self.ui.datawhitening_overwrite_crc.setChecked(False)
             else:
                 if element in self.chainoptions:
                     value = self.chainoptions[element]
                     if value == "":
                         self.ui.datawhitening_sync.setText("0xe9cae9ca")
                         self.ui.datawhitening_polynomial.setText("0x21")
-                        self.ui.datawhitening_applycrc.setChecked(True)
-                        self.ui.datawhitening_preamble_rm.setChecked(False)
-                        self.ui.datawhitening_sync_rm.setChecked(False)
-                        self.ui.datawhitening_crc_rm.setChecked(False)
+                        self.ui.datawhitening_overwrite_crc.setChecked(False)
                     else:
                         try:
-                            whitening_sync, whitening_polynomial, opt = value.split(";")
+                            whitening_sync, whitening_polynomial, whitening_overwrite_crc = value.split(";")
                             self.ui.datawhitening_sync.setText(whitening_sync)
                             self.ui.datawhitening_polynomial.setText(whitening_polynomial)
-                            opt = self.e.hex2bit(opt)
-                            if len(opt) >= 4:
-                                self.ui.datawhitening_applycrc.setChecked(opt[0])
-                                self.ui.datawhitening_preamble_rm.setChecked(opt[1])
-                                self.ui.datawhitening_sync_rm.setChecked(opt[2])
-                                self.ui.datawhitening_crc_rm.setChecked(opt[3])
+                            self.ui.datawhitening_overwrite_crc.setChecked(True if whitening_overwrite_crc == "1" else False)
 
                         except ValueError:
                             self.ui.datawhitening_sync.setText("0xe9cae9ca")
                             self.ui.datawhitening_polynomial.setText("0x21")
-                            self.ui.datawhitening_applycrc.setChecked(True)
-                            self.ui.datawhitening_preamble_rm.setChecked(False)
-                            self.ui.datawhitening_sync_rm.setChecked(False)
-                            self.ui.datawhitening_crc_rm.setChecked(False)
+                            self.ui.datawhitening_overwrite_crc.setChecked(False)
 
             self.ui.datawhitening_sync.setEnabled(decoderEdit)
             self.ui.datawhitening_polynomial.setEnabled(decoderEdit)
-            self.ui.datawhitening_applycrc.setEnabled(decoderEdit)
-            self.ui.datawhitening_preamble_rm.setEnabled(decoderEdit)
-            self.ui.datawhitening_sync_rm.setEnabled(decoderEdit)
-            self.ui.datawhitening_crc_rm.setEnabled(decoderEdit)
+            self.ui.datawhitening_overwrite_crc.setEnabled(decoderEdit)
+
         elif constants.DECODING_CUT in element:
             txt += "This function enables you to cut data from your messages, in order to shorten or align them for a " \
                    "better view. Note that this decoding does NOT support encoding, because cut data is gone!\n" \
@@ -702,7 +686,7 @@ class DecoderWidgetController(QDialog):
                                 self.ui.cutmark2.setEnabled(True)
                                 self.ui.cutmark2.setValue(int(cmark))
                             elif cmode == 3:
-                                self.ui.rB_delbeforepos.setChecked(True)
+                                self.ui.rB_delafterpos.setChecked(True)
                                 self.ui.cutmark.setEnabled(False)
                                 self.ui.cutmark2.setEnabled(True)
                                 self.ui.cutmark2.setValue(int(cmark))
@@ -736,28 +720,17 @@ class DecoderWidgetController(QDialog):
 
     @pyqtSlot()
     def handle_datawhitening(self):
-        opt = 0
-        if self.ui.datawhitening_applycrc.isChecked():
-            opt = opt | 0x8
-
-        if self.ui.datawhitening_preamble_rm.isChecked():
-            opt = opt | 0x4
-
-        if self.ui.datawhitening_sync_rm.isChecked():
-            opt = opt | 0x2
-
-        if self.ui.datawhitening_crc_rm.isChecked():
-            opt = opt | 0x1
-
-        datawhiteningstr = self.ui.datawhitening_sync.text() + ";" + self.ui.datawhitening_polynomial.text() + ";" + hex(
-            opt)
-        self.chainoptions[self.active_message] = datawhiteningstr
+        datawhiteningstr = self.ui.datawhitening_sync.text() + ";" + self.ui.datawhitening_polynomial.text() + ";" + \
+                           ("1" if self.ui.datawhitening_overwrite_crc.isChecked() else "0")
+        if constants.DECODING_DATAWHITENING in self.active_message:
+            self.chainoptions[self.active_message] = datawhiteningstr
         self.decoderchainUpdate()
 
     @pyqtSlot()
     def handle_external(self):
         externalstr = self.ui.external_decoder.text() + ";" + self.ui.external_encoder.text()
-        self.chainoptions[self.active_message] = externalstr
+        if constants.DECODING_EXTERNAL in self.active_message:
+            self.chainoptions[self.active_message] = externalstr
         self.decoderchainUpdate()
 
     @pyqtSlot()
@@ -766,7 +739,8 @@ class DecoderWidgetController(QDialog):
         for i in range(0, self.ui.substitution_rows.value()):
             if self.ui.substitution.item(i, 0) and self.ui.substitution.item(i, 1):
                 subststr += self.ui.substitution.item(i, 0).text() + ":" + self.ui.substitution.item(i, 1).text() + ";"
-        self.chainoptions[self.active_message] = subststr
+        if constants.DECODING_SUBSTITUTION in self.active_message:
+            self.chainoptions[self.active_message] = subststr
         self.decoderchainUpdate()
 
     @pyqtSlot()
@@ -779,7 +753,8 @@ class DecoderWidgetController(QDialog):
     def handle_multiple_changed(self):
         # Multiple Spinbox
         val = self.ui.multiple.value()
-        self.chainoptions[self.active_message] = val
+        if constants.DECODING_REDUNDANCY in self.active_message:
+            self.chainoptions[self.active_message] = val
         self.decoderchainUpdate()
 
     @pyqtSlot()
@@ -796,7 +771,8 @@ class DecoderWidgetController(QDialog):
         else:
             self.old_morse = (val_low, val_high)
 
-        self.chainoptions[self.active_message] = "{};{};{}".format(val_low, val_high, val_wait)
+        if constants.DECODING_MORSE in self.active_message:
+            self.chainoptions[self.active_message] = "{};{};{}".format(val_low, val_high, val_wait)
         self.decoderchainUpdate()
 
     @pyqtSlot()
@@ -810,7 +786,8 @@ class DecoderWidgetController(QDialog):
             self.old_carrier_txt = carrier_txt
         # Carrier Textbox
         # self.e.carrier = self.e.str2bit(self.ui.carrier.text())
-        self.chainoptions[self.active_message] = carrier_txt
+        if constants.DECODING_CARRIER in self.active_message:
+            self.chainoptions[self.active_message] = carrier_txt
         self.decoderchainUpdate()
 
     @pyqtSlot()
@@ -843,7 +820,8 @@ class DecoderWidgetController(QDialog):
 
         cut_text = str(cmode) + ";" + cmark
 
-        self.chainoptions[self.active_message] = cut_text
+        if constants.DECODING_CUT in self.active_message:
+            self.chainoptions[self.active_message] = cut_text
         self.decoderchainUpdate()
 
     def dragEnterEvent(self, event: QDragEnterEvent):
@@ -866,17 +844,15 @@ class DecoderWidgetController(QDialog):
             self.decoder_update()
             return
 
+        self.setCursor(Qt.WaitCursor)
+
         signal = self.signals[indx - 1]
         pa = ProtocolAnalyzer(signal)
         pa.get_protocol_from_signal()
-        self.ui.inpt.setText("".join(pa.decoded_proto_bits_str))
+        self.ui.inpt.setText("".join(pa.plain_bits_str))
+        self.ui.inpt.setCursorPosition(0)
 
-        tmp_scene = QGraphicsScene()
-        tmp_scene.addText(self.tr("Loading Signal..."))
-        QApplication.instance().setOverrideCursor(Qt.WaitCursor)
-        self.ui.graphicsView_signal.setScene(tmp_scene)
-
-        if signal is not None:
+        if signal is not None and pa.messages:
             last_message = pa.messages[-1]
             lookup = {i: msg.bit_sample_pos for i, msg in enumerate(pa.messages)}
 
@@ -884,4 +860,4 @@ class DecoderWidgetController(QDialog):
             self.ui.graphicsView_signal.plot_data(plot_data)
 
         self.ui.graphicsView_signal.centerOn(0, 0)
-        QApplication.instance().restoreOverrideCursor()
+        self.unsetCursor()

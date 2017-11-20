@@ -39,7 +39,7 @@ class TestSignalTabGUI(QtTestCase):
         self.assertEqual(x_zoom, 100)
 
         for _ in range(10):
-            frame.ui.gvSignal.zoom(1.01)
+            frame.ui.gvSignal.zoom(1.1)
             self.assertGreater(frame.ui.spinBoxXZoom.value(), x_zoom)
             x_zoom = frame.ui.spinBoxXZoom.value()
 
@@ -55,8 +55,8 @@ class TestSignalTabGUI(QtTestCase):
     def test_load_proto(self):
         QApplication.instance().processEvents()
         QTest.qWait(self.WAIT_TIMEOUT_BEFORE_NEW)
-        self.form.add_files([get_path_for_data_file("protocol.proto")])
-        self.assertEqual(self.form.signal_tab_controller.signal_frames[0].ui.lSignalTyp.text(), "Protocol (*.proto)")
+        self.form.add_files([get_path_for_data_file("protocol.proto.xml")])
+        self.assertEqual(self.form.signal_tab_controller.signal_frames[0].ui.lSignalTyp.text(), "Protocol")
 
     def test_graphic_view_selection(self):
         self.add_signal_to_form("esaver.complex")
@@ -120,12 +120,17 @@ class TestSignalTabGUI(QtTestCase):
         frame.ui.spinBoxTolerance.setValue(10)
         frame.ui.spinBoxTolerance.editingFinished.emit()
 
+        frame.signal.pause_threshold = 42
+        frame.signal.message_length_divisor = 10
+
         frame.apply_to_all_clicked.emit(frame.signal)
 
         self.assertEqual(42, frame2.ui.spinBoxInfoLen.value())
         self.assertEqual(0.1, frame2.ui.spinBoxCenterOffset.value())
         self.assertEqual(0.5, frame2.ui.spinBoxNoiseTreshold.value())
         self.assertEqual(10, frame2.ui.spinBoxTolerance.value())
+        self.assertEqual(42, frame2.signal.pause_threshold)
+        self.assertEqual(10, frame2.signal.message_length_divisor)
 
     def test_save_all(self):
         self.add_signal_to_form("esaver.complex")
@@ -190,12 +195,20 @@ class TestSignalTabGUI(QtTestCase):
         self.assertAlmostEqual((128440 - 89383) / 1000000,
                                (frame.ui.gvSignal.view_rect().width()) / 1000000, places=1)
 
-    def test_show_demod_view(self):
+    def test_legend_graphic_view(self):
         self.add_signal_to_form("esaver.complex")
         frame = self.form.signal_tab_controller.signal_frames[0]
+
         self.assertTrue(frame.ui.gvLegend.isHidden())
         frame.ui.cbSignalView.setCurrentIndex(1)
         self.assertFalse(frame.ui.gvLegend.isHidden())
+
+        self.assertAlmostEqual(frame.ui.gvLegend.y_sep, -frame.ui.spinBoxCenterOffset.value(), places=4)
+
+        frame.ui.spinBoxCenterOffset.setValue(0)
+        frame.ui.spinBoxCenterOffset.editingFinished.emit()
+
+        self.assertEqual(frame.ui.gvLegend.y_sep, 0)
 
     def test_auto_detect_button(self):
         self.add_signal_to_form("esaver.complex")

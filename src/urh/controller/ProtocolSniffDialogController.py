@@ -1,13 +1,14 @@
 import numpy as np
 from PyQt5.QtCore import pyqtSlot, pyqtSignal
+from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QCompleter, QDirModel
+from urh.ui.painting.SniffSceneManager import SniffSceneManager
 
 from urh import constants
-from urh.SniffSceneManager import SniffSceneManager
-from urh.LiveSceneManager import LiveSceneManager
 from urh.controller.SendRecvDialogController import SendRecvDialogController
 from urh.plugins.NetworkSDRInterface.NetworkSDRInterfacePlugin import NetworkSDRInterfacePlugin
 from urh.signalprocessing.ProtocolSniffer import ProtocolSniffer
+from urh.ui.painting.LiveSceneManager import LiveSceneManager
 
 
 class ProtocolSniffDialogController(SendRecvDialogController):
@@ -49,7 +50,8 @@ class ProtocolSniffDialogController(SendRecvDialogController):
         completer.setModel(QDirModel(completer))
         self.ui.lineEdit_sniff_OutputFile.setCompleter(completer)
 
-        self.setWindowTitle(self.tr("Sniff protocol"))
+        self.setWindowTitle(self.tr("Sniff Protocol"))
+        self.setWindowIcon(QIcon.fromTheme(":/icons/data/icons/sniffer.svg"))
 
         self.encodings = encodings
         for encoding in self.encodings:

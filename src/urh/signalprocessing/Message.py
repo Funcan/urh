@@ -7,7 +7,7 @@ import numpy as np
 
 from urh.signalprocessing.MessageType import MessageType
 from urh.signalprocessing.ProtocoLabel import ProtocolLabel
-from urh.signalprocessing.encoder import Encoder
+from urh.signalprocessing.Encoding import Encoding
 from urh.util.Formatter import Formatter
 from urh.util.Logger import logger
 import array
@@ -18,17 +18,17 @@ class Message(object):
     A protocol message is a single line of a protocol.
     """
 
-    __slots__ = ["__plain_bits", "__bit_alignments", "pause", "modulator_indx", "rssi", "participant", "message_type",
+    __slots__ = ["__plain_bits", "__bit_alignments", "pause", "modulator_index", "rssi", "participant", "message_type",
                  "absolute_time", "relative_time", "__decoder", "align_labels", "decoding_state",
                  "fuzz_created", "__decoded_bits", "__encoded_bits", "decoding_errors", "bit_len", "bit_sample_pos"]
 
-    def __init__(self, plain_bits, pause: int, message_type: MessageType, rssi=0, modulator_indx=0, decoder=None,
+    def __init__(self, plain_bits, pause: int, message_type: MessageType, rssi=0, modulator_index=0, decoder=None,
                  fuzz_created=False, bit_sample_pos=None, bit_len=100, participant=None):
         """
 
         :param pause: pause AFTER the message in samples
         :type plain_bits: list[bool|int]
-        :type decoder: Encoder
+        :type decoder: Encoding
         :type bit_alignment_positions: list of int
         :param bit_alignment_positions: Für Ausrichtung der Hex Darstellung (Leere Liste für Standardverhalten)
         :param bit_len: Für Übernahme der Bitlänge in Modulator Dialog
@@ -37,19 +37,15 @@ class Message(object):
         """
         self.__plain_bits = array.array("B", plain_bits)
         self.pause = pause
-        self.modulator_indx = modulator_indx
+        self.modulator_index = modulator_index
         self.rssi = rssi
-        self.participant = participant
-        """:type: Participant """
-
-        self.message_type = message_type
-        """:type: MessageType """
+        self.participant = participant    # type: Participant
+        self.message_type = message_type  # type: MessageType
 
         self.absolute_time = 0  # set in Compare Frame
         self.relative_time = 0  # set in Compare Frame
 
-        self.__decoder = decoder if decoder else Encoder(["Non Return To Zero (NRZ)"])
-        """:type: encoding """
+        self.__decoder = decoder if decoder else Encoding(["Non Return To Zero (NRZ)"])  # type: Encoding
 
         self.align_labels = True
         self.fuzz_created = fuzz_created
@@ -58,17 +54,17 @@ class Message(object):
         self.__encoded_bits = None
         self.__bit_alignments = []
         self.decoding_errors = 0
-        self.decoding_state = Encoder.ErrorState.SUCCESS
+        self.decoding_state = Encoding.ErrorState.SUCCESS
 
         self.bit_len = bit_len  # Für Übernahme in Modulator
 
         if bit_sample_pos is None:
-            self.bit_sample_pos = []
+            self.bit_sample_pos = array.array("L", [])
         else:
             self.bit_sample_pos = bit_sample_pos
             """
             :param bit_sample_pos: Position of samples for each bit. Last position is pause so last bit is on pos -2.
-            :type  bit_sample_pos: list of int
+            :type  bit_sample_pos: array.array
             """
 
     @property
@@ -154,6 +150,9 @@ class Message(object):
     def __str__(self):
         return self.bits2string(self.plain_bits)
 
+    def delete_range_without_label_range_update(self, start: int, end: int):
+        del self.plain_bits[start:end]
+
     def get_byte_length(self, decoded=True) -> int:
         """
         Return the length of this message in byte.
@@ -174,11 +173,11 @@ class Message(object):
         self.__decoded_bits = None
 
     @property
-    def decoder(self) -> Encoder:
+    def decoder(self) -> Encoding:
         return self.__decoder
 
     @decoder.setter
-    def decoder(self, val: Encoder):
+    def decoder(self, val: Encoding):
         self.__decoder = val
         self.clear_decoded_bits()
         self.clear_encoded_bits()
@@ -210,11 +209,7 @@ class Message(object):
         return self.bits2string(self.encoded_bits)
 
     @property
-    def decoded_bits(self):
-        """
-
-        :rtype: array.array
-        """
+    def decoded_bits(self) -> array.array:
         if self.__decoded_bits is None:
             self.__decoded_bits = array.array("B", [])
             start = 0
@@ -454,10 +449,15 @@ class Message(object):
     def to_xml(self, decoders=None, include_message_type=False) -> ET.Element:
         root = ET.Element("message")
         root.set("message_type_id", self.message_type.id)
-        root.set("modulator_index", str(self.modulator_indx))
+        root.set("modulator_index", str(self.modulator_index))
         root.set("pause", str(self.pause))
         if decoders:
-            root.set("decoding_index", str(decoders.index(self.decoder)))
+            try:
+                decoding_index = decoders.index(self.decoder)
+            except ValueError:
+                logger.warning("Failed to find '{}' in list of decodings".format(self.decoder.name))
+                decoding_index = 0
+            root.set("decoding_index", str(decoding_index))
         if self.participant is not None:
             root.set("participant_id", self.participant.id)
         if include_message_type:
@@ -467,7 +467,7 @@ class Message(object):
     def from_xml(self, tag: ET.Element, participants, decoders=None, message_types=None):
         part_id = tag.get("participant_id", None)
         message_type_id = tag.get("message_type_id", None)
-        self.modulator_indx = int(tag.get("modulator_index", self.modulator_indx))
+        self.modulator_index = int(tag.get("modulator_index", self.modulator_index))
         self.pause = int(tag.get("pause", self.pause))
         decoding_index = tag.get("decoding_index", None)
         if decoding_index:

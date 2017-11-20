@@ -30,6 +30,7 @@ class SendRecvDialogController(QDialog):
 
         self.ui = Ui_SendRecvDialog()
         self.ui.setupUi(self)
+        self.ui.splitter.setHandleWidth(6)
 
         self.set_sniff_ui_items_visible(False)
 
@@ -124,8 +125,8 @@ class SendRecvDialogController(QDialog):
         self.__device = value
 
     def hide_send_ui_items(self):
-        for item in ("spinBoxNRepeat", "labelNRepeat", "lblCurrentRepeatValue",
-                     "lblRepeatText", "lSamplesSentText", "progressBar"):
+        for item in ("spinBoxNRepeat", "labelNRepeat", "lblCurrentRepeatValue", "progressBarMessage",
+                     "lblRepeatText", "lSamplesSentText", "progressBarSample", "labelCurrentMessage"):
             getattr(self.ui, item).hide()
 
     def hide_receive_ui_items(self):
@@ -308,7 +309,7 @@ class SendRecvDialogController(QDialog):
         return items
 
     def set_bandwidth_status(self):
-        if self.device is not None:
+        if self.device is not None and self.device.backend != Backends.none:
             self.ui.spinBoxBandwidth.setEnabled(self.device.bandwidth_is_adjustable)
             self.ui.btnLockBWSR.setEnabled(self.device.bandwidth_is_adjustable)
 
@@ -366,14 +367,14 @@ class SendRecvDialogController(QDialog):
         self.device.sender_needs_restart.connect(self._restart_device_thread)
 
     def reset(self):
-        self.ui.txtEditErrors.clear()
         self.device.current_index = 0
         self.device.current_iteration = 0
         self.ui.lSamplesCaptured.setText("0")
         self.ui.lSignalSize.setText("0")
         self.ui.lTime.setText("0")
         self.ui.lblCurrentRepeatValue.setText("-")
-        self.ui.progressBar.setValue(0)
+        self.ui.progressBarSample.setValue(0)
+        self.ui.progressBarMessage.setValue(0)
         self.ui.btnClear.setEnabled(False)
         self.ui.btnSave.setEnabled(False)
 
@@ -573,8 +574,6 @@ class SendRecvDialogController(QDialog):
         if len(new_messages) > 1:
             self.ui.txtEditErrors.setPlainText(txt + new_messages)
 
-        self.ui.progressBar.setValue(self.device.current_index)
-
         self.ui.lSamplesCaptured.setText("{0:n}".format(self.device.current_index))
         self.ui.lSignalSize.setText(locale.format_string("%.2f", (8 * self.device.current_index) / (1024 ** 2)))
         self.ui.lTime.setText(locale.format_string("%.2f", self.device.current_index / self.device.sample_rate))
@@ -602,7 +601,8 @@ class SendRecvDialogController(QDialog):
 
     def closeEvent(self, event: QCloseEvent):
         self.timer.stop()
-        self.emit_editing_finished_signals()
+        if self.device.backend is not Backends.none:
+            self.emit_editing_finished_signals()
 
         self.device.stop("Dialog closed. Killing recording process.")
         logger.debug("Device stopped successfully.")

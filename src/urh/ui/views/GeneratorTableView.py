@@ -149,10 +149,10 @@ class GeneratorTableView(TableView):
 
         if self.model().row_count > 0:
             if selected_label_index == -1:
-                fuzzing_action = menu.addAction("Create fuzzing Label...")
+                fuzzing_action = menu.addAction("Create fuzzing label...")
                 fuzzing_action.setIcon(QIcon.fromTheme("list-add"))
             else:
-                fuzzing_action = menu.addAction("Edit fuzzing Label...")
+                fuzzing_action = menu.addAction("Edit fuzzing label...")
                 fuzzing_action.setIcon(QIcon.fromTheme("configure"))
 
             fuzzing_action.triggered.connect(self.on_fuzzing_action_triggered)
@@ -161,6 +161,9 @@ class GeneratorTableView(TableView):
         add_message_action = menu.addAction("Add empty message...")
         add_message_action.setIcon(QIcon.fromTheme("edit-table-insert-row-below"))
         add_message_action.triggered.connect(self.on_add_message_action_triggered)
+
+        if not self.selection_is_empty:
+            menu.addAction(self.copy_action)
 
         if self.model().row_count > 0:
             duplicate_action = menu.addAction("Duplicate line")

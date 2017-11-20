@@ -5,19 +5,22 @@ import sys
 import tempfile
 from subprocess import call
 
-from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal
-from PyQt5.QtGui import QCloseEvent
-from PyQt5.QtWidgets import QDialog, QHBoxLayout, QCompleter, QDirModel, QApplication, QHeaderView, QStyleFactory
+from PyQt5.QtCore import Qt, pyqtSlot, pyqtSignal, QSize
+from PyQt5.QtGui import QCloseEvent, QIcon, QPixmap
+from PyQt5.QtWidgets import QDialog, QHBoxLayout, QCompleter, QDirModel, QApplication, QHeaderView, QStyleFactory, \
+    QRadioButton, QVBoxLayout, QPlainTextEdit
 
-from urh import constants
+from urh import constants, colormaps
 from urh.controller.PluginController import PluginController
 from urh.dev.BackendHandler import BackendHandler, Backends, BackendContainer
 from urh.dev.native import ExtensionHelper
 from urh.models.FieldTypeTableModel import FieldTypeTableModel
 from urh.signalprocessing.FieldType import FieldType
 from urh.signalprocessing.ProtocoLabel import ProtocolLabel
+from urh.signalprocessing.Spectrogram import Spectrogram
 from urh.ui.delegates.ComboBoxDelegate import ComboBoxDelegate
 from urh.ui.ui_options import Ui_DialogOptions
+from urh.util import util
 
 
 class OptionsController(QDialog):
@@ -39,13 +42,18 @@ class OptionsController(QDialog):
         # We use bundled native device backends on windows, so no need to reconfigure them
         self.ui.groupBoxNativeOptions.setVisible(sys.platform != "win32")
         self.ui.labelWindowsError.setVisible(sys.platform == "win32" and platform.architecture()[0] != "64bit")
+        self.ui.labelIconTheme.setVisible(sys.platform == "linux")
+        self.ui.comboBoxIconTheme.setVisible(sys.platform == "linux")
 
         self.ui.comboBoxTheme.setCurrentIndex(constants.SETTINGS.value("theme_index", 0, int))
+        self.ui.comboBoxIconTheme.setCurrentIndex(constants.SETTINGS.value("icon_theme_index", 0, int))
         self.ui.checkBoxShowConfirmCloseDialog.setChecked(
             not constants.SETTINGS.value('not_show_close_dialog', False, bool))
-        self.ui.checkBoxHoldShiftToDrag.setChecked(constants.SETTINGS.value('hold_shift_to_drag', False, bool))
+        self.ui.checkBoxHoldShiftToDrag.setChecked(constants.SETTINGS.value('hold_shift_to_drag', True, bool))
         self.ui.checkBoxDefaultFuzzingPause.setChecked(
             constants.SETTINGS.value('use_default_fuzzing_pause', True, bool))
+
+        self.ui.checkBoxAlignLabels.setChecked(constants.SETTINGS.value('align_labels', True, bool))
 
         self.ui.doubleSpinBoxRAMThreshold.setValue(100 * constants.SETTINGS.value('ram_threshold', 0.6, float))
 
@@ -89,6 +97,8 @@ class OptionsController(QDialog):
         self.old_default_view = self.ui.comboBoxDefaultView.currentIndex()
         self.ui.labelRebuildNativeStatus.setText("")
 
+        self.show_available_colormaps()
+
         try:
             self.restoreGeometry(constants.SETTINGS.value("{}/geometry".format(self.__class__.__name__)))
         except TypeError:
@@ -131,6 +141,8 @@ class OptionsController(QDialog):
         self.ui.radioButtonGnuradioDirectory.clicked.connect(self.on_radio_button_gnuradio_directory_clicked)
         self.ui.doubleSpinBoxRAMThreshold.valueChanged.connect(self.on_double_spinbox_ram_threshold_value_changed)
         self.ui.btnRebuildNative.clicked.connect(self.on_btn_rebuild_native_clicked)
+        self.ui.btnHealthCheck.clicked.connect(self.on_btn_health_check_clicked)
+        self.ui.comboBoxIconTheme.currentIndexChanged.connect(self.on_combobox_icon_theme_index_changed)
 
     def show_gnuradio_infos(self):
         self.ui.lineEditPython2Interpreter.setText(self.backend_handler.python2_exe)
@@ -199,6 +211,19 @@ class OptionsController(QDialog):
         self.ui.lineEditGnuradioDirectory.setEnabled(self.backend_handler.use_gnuradio_install_dir)
         self.ui.lineEditPython2Interpreter.setDisabled(self.backend_handler.use_gnuradio_install_dir)
 
+    def show_available_colormaps(self):
+        height = 50
+
+        selected = colormaps.read_selected_colormap_name_from_settings()
+        for colormap_name in sorted(colormaps.maps.keys()):
+            image = Spectrogram.create_colormap_image(colormap_name, height=height)
+            rb = QRadioButton(colormap_name)
+            rb.setObjectName(colormap_name)
+            rb.setChecked(colormap_name == selected)
+            rb.setIcon(QIcon(QPixmap.fromImage(image)))
+            rb.setIconSize(QSize(256, height))
+            self.ui.scrollAreaWidgetSpectrogramColormapContents.layout().addWidget(rb)
+
     def closeEvent(self, event: QCloseEvent):
         changed_values = {}
         if bool(self.ui.checkBoxPauseTime.isChecked()) != self.old_show_pause_as_time:
@@ -215,6 +240,16 @@ class OptionsController(QDialog):
         self.plugin_controller.save_enabled_states()
         for plugin in self.plugin_controller.model.plugins:
             plugin.destroy_settings_frame()
+
+        for i in range(self.ui.scrollAreaWidgetSpectrogramColormapContents.layout().count()):
+            widget = self.ui.scrollAreaWidgetSpectrogramColormapContents.layout().itemAt(i).widget()
+            if isinstance(widget, QRadioButton) and widget.isChecked():
+                selected_colormap_name = widget.objectName()
+                if selected_colormap_name != colormaps.read_selected_colormap_name_from_settings():
+                    colormaps.choose_colormap(selected_colormap_name)
+                    colormaps.write_selected_colormap_to_settings(selected_colormap_name)
+                    changed_values["spectrogram_colormap"] = selected_colormap_name
+                break
 
         self.values_changed.emit(changed_values)
 
@@ -269,6 +304,11 @@ class OptionsController(QDialog):
             QApplication.instance().setStyle(QStyleFactory.create("Fusion"))
         else:
             QApplication.instance().setStyle(constants.SETTINGS.value("default_theme", type=str))
+
+    @pyqtSlot(int)
+    def on_combobox_icon_theme_index_changed(self, index: int):
+        constants.SETTINGS.setValue('icon_theme_index', index)
+        util.set_icon_theme()
 
     @pyqtSlot(bool)
     def on_checkbox_hold_shift_to_drag_clicked(self, checked: bool):
@@ -365,6 +405,17 @@ class OptionsController(QDialog):
                 os.remove(os.path.join(tempfile.gettempdir(), "native_extensions"))
             except OSError:
                 pass
+
+
+    @pyqtSlot()
+    def on_btn_health_check_clicked(self):
+        info = ExtensionHelper.perform_health_check()
+
+        if util.get_windows_lib_path():
+            info += "\n\nINFO] Used DLLs from " + util.get_windows_lib_path()
+
+        d = util.create_textbox_dialog(info, "Health check for native extensions", self)
+        d.show()
 
 
     @staticmethod

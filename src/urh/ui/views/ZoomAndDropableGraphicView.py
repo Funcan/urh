@@ -1,9 +1,9 @@
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent
 
-from urh.SignalSceneManager import SignalSceneManager
 from urh.signalprocessing.ProtocolAnalyzer import ProtocolAnalyzer
 from urh.signalprocessing.Signal import Signal
+from urh.ui.painting.SignalSceneManager import SignalSceneManager
 from urh.ui.views.ZoomableGraphicView import ZoomableGraphicView
 
 
@@ -61,12 +61,9 @@ class ZoomAndDropableGraphicView(ZoomableGraphicView):
         self.signal_loaded.emit(self.proto_analyzer)
 
     def eliminate(self):
-        if self.signal is not None:
-            self.signal.eliminate()
-            self.signal = None
-        if self.proto_analyzer is not None:
-            self.proto_analyzer.eliminate()
-            self.proto_analyzer = None
-
+        # Do _not_ call eliminate() for self.signal and self.proto_analyzer
+        # as these are references to the original data!
+        self.signal = None
+        self.proto_analyzer = None
         self.signal_tree_root = None
         super().eliminate()

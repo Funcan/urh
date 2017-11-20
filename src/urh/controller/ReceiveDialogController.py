@@ -1,16 +1,17 @@
 import numpy as np
 from PyQt5.QtCore import pyqtSignal, pyqtSlot
+from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QMessageBox
 
-from urh.LiveSceneManager import LiveSceneManager
 from urh.controller.SendRecvDialogController import SendRecvDialogController
 from urh.dev.VirtualDevice import Mode, VirtualDevice
+from urh.ui.painting.LiveSceneManager import LiveSceneManager
 from urh.util import FileOperator
 from urh.util.Formatter import Formatter
 
 
 class ReceiveDialogController(SendRecvDialogController):
-    files_recorded = pyqtSignal(list)
+    files_recorded = pyqtSignal(list, float)
 
     def __init__(self, project_manager, parent=None, testing_mode=False):
         try:
@@ -29,6 +30,9 @@ class ReceiveDialogController(SendRecvDialogController):
 
         self.init_device()
         self.set_bandwidth_status()
+
+        self.setWindowTitle("Record Signal")
+        self.setWindowIcon(QIcon.fromTheme("media-record"))
 
         self.graphics_view.setScene(self.scene_manager.scene)
         self.graphics_view.scene_manager = self.scene_manager
@@ -49,7 +53,12 @@ class ReceiveDialogController(SendRecvDialogController):
             elif reply == QMessageBox.Abort:
                 return False
 
-        self.files_recorded.emit(self.recorded_files)
+        try:
+            sample_rate = self.device.sample_rate
+        except:
+            sample_rate = 1e6
+
+        self.files_recorded.emit(self.recorded_files, sample_rate)
         return True
 
     def update_view(self):

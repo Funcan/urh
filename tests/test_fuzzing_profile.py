@@ -6,17 +6,17 @@ from urh import constants
 from urh.signalprocessing.Message import Message
 from urh.signalprocessing.Modulator import Modulator
 from urh.signalprocessing.ProtocolAnalyzerContainer import ProtocolAnalyzerContainer
-from urh.signalprocessing.encoder import Encoder
+from urh.signalprocessing.Encoding import Encoding
 
 
-class TestFuzzing(QtTestCase):
-    def setUp(self):
-        filename = os.path.join(tempfile.gettempdir(), "test.fuzz")
+class TestFuzzingProfile(QtTestCase):
+    def test_load_profile(self):
+        filename = os.path.join(tempfile.gettempdir(), "test.fuzz.xml")
         mod1 = Modulator("mod 1")
         mod2 = Modulator("mod 2")
         mod2.param_for_one = 42
 
-        decoders = [Encoder(["NRZ"]), Encoder(["NRZ-I", constants.DECODING_INVERT])]
+        decoders = [Encoding(["NRZ"]), Encoding(["NRZ-I", constants.DECODING_INVERT])]
 
         pac = ProtocolAnalyzerContainer([mod1, mod2])
         pac.messages.append(Message([True, False, False, True], 100, decoder=decoders[0], message_type=pac.default_message_type))
@@ -24,9 +24,12 @@ class TestFuzzing(QtTestCase):
         pac.create_fuzzing_label(1, 10, 0)
         pac.to_xml_file(filename)
 
-    def test_load_profile(self):
-        pac = ProtocolAnalyzerContainer([])
-        pac.from_xml_file(os.path.join(tempfile.gettempdir(), "test.fuzz"))
+        self.wait_before_new_file()
+        self.form.add_files([os.path.join(tempfile.gettempdir(), "test.fuzz.xml")])
+
+        self.assertEqual(self.form.ui.tabWidget.currentWidget(), self.form.ui.tab_generator)
+
+        pac = self.form.generator_tab_controller.table_model.protocol
 
         self.assertEqual(len(pac.modulators), 2)
         self.assertEqual(len(pac.messages), 2)

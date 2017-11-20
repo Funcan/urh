@@ -11,12 +11,9 @@ if path not in sys.path:
 
 import numpy as np
 
-if sys.platform == "win32":
+from urh.util import util
 
-
-    cur_dir = os.path.dirname(__file__) if not os.path.islink(__file__) else os.path.dirname(os.readlink(__file__))
-    dll_dir = os.path.realpath(os.path.join(cur_dir, "..", "src", "urh", "dev", "native", "lib", "win"))
-    os.environ['PATH'] = dll_dir + ';' + os.environ['PATH']
+util.set_windows_lib_path()
 
 from urh.dev.native.lib import limesdr
 
@@ -106,14 +103,12 @@ class TestLimeSDR(unittest.TestCase):
             limesdr.print_last_error()
             print("Setup stream", limesdr.setup_stream(4000000000))
             print("Start stream", limesdr.start_stream())
-            print("Send samples", limesdr.send_stream(samples_to_send, 100))
+            print("Send samples", limesdr.send_stream(samples_to_send.view(np.float32), 100))
             print("Stop stream", limesdr.stop_stream())
             print("Destroy stream", limesdr.destroy_stream())
 
         print("-" * 20)
         print("Close:", limesdr.close())
-        print("Is Open 0:", limesdr.is_open(0))
-        print("Is Open 1:", limesdr.is_open(1))
 
 if __name__ == "__main__":
     unittest.main()
